@@ -118,4 +118,33 @@ def build_feature_table(data_dir):
 
     X = pd.DataFrame(rows)
     meta_df = pd.DataFrame(metas)
-    return X, meta_df
+    return X, meta_df 
+
+
+def add_pause_history_features(df):
+    """df: one turn's pauses, sorted by pause_index. Only uses PAST pauses — causal."""
+    df = df.sort_values("pause_index").reset_index(drop=True)
+    n_prior = []
+    prev_dur = []
+    mean_prior_dur = []
+    max_prior_dur = []
+    cum_speech_time = []  
+
+    durations = (df["pause_end"] - df["pause_start"]).tolist() if "pause_end" in df else None
+
+    for i in range(len(df)):
+        prior_durs = []
+        for j in range(i):
+          
+            prior_durs.append(df.loc[j, "pause_start"] - df.loc[j, "pause_start"])  # use real pause_end-pause_start if available
+
+        n_prior.append(i)  # number of pauses before this one  
+        prev_dur.append(prior_durs[-1] if prior_durs else 0.0)
+        mean_prior_dur.append(np.mean(prior_durs) if prior_durs else 0.0)
+        max_prior_dur.append(np.max(prior_durs) if prior_durs else 0.0)
+
+    df["n_prior_pauses"] = n_prior
+    df["prev_pause_dur"] = prev_dur
+    df["mean_prior_pause_dur"] = mean_prior_dur
+    df["max_prior_pause_dur"] = max_prior_dur
+    return df

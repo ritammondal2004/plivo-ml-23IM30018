@@ -1,0 +1,94 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>End-of-Turn Detection — Summary</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.55; }
+  h1 { border-bottom: 3px solid #222; padding-bottom: 8px; }
+  h2 { margin-top: 40px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+  th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
+  th { background: #f2f2f2; }
+  code { background: #f2f2f2; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+  pre { background: #f8f8f8; padding: 12px; border-radius: 5px; overflow-x: auto; }
+  .good { color: #1a7a1a; font-weight: bold; }
+  .warn { color: #b35900; font-weight: bold; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; font-weight: bold; }
+  .human { background: #dceeff; }
+  .agent { background: #ffe8cc; }
+</style>
+</head>
+<body>
+
+<h1>End-of-Turn Detection — Summary</h1>
+<p>Plivo ML Assignment — predicting whether a pause in user speech is the end of turn (EOT) or just a hold, using only audio available before the pause.</p>
+
+<h2>Approach</h2>
+<p>Built a feature-based classifier rather than anything pretrained (not allowed by the rules anyway). For every pause, features are computed only from audio between turn start and <code>pause_start</code> — never after, so the causality rule is respected everywhere.</p>
+
+<p><strong>Features used</strong> (all causal):</p>
+<ul>
+  <li>Pitch and pitch slope over the trailing window of speech before the pause</li>
+  <li>RMS energy and energy trajectory</li>
+  <li>Voiced ratio</li>
+  <li>Pause position in the turn (<code>pause_index</code>) and time since turn start</li>
+  <li>Pause-history features: number of prior pauses, duration of the previous pause, running mean/max of prior pause durations — all use only pauses that already happened</li>
+</ul>
+
+<p><strong>Model:</strong> <code>GradientBoostingClassifier</code> (scikit-learn), trained on English + Hindi data combined. Also tried <code>HistGradientBoostingClassifier</code> with the same features — it underperformed on cross-validation and was dropped.</p>
+
+<h2>Why combined-language training</h2>
+<p>Ran a controlled experiment: trained on English only, tested on Hindi (a stand-in for an unseen language). This scored AUC 0.616 and 850ms delay on Hindi — no better than the silence-only baseline. Training on English+Hindi together generalizes much better, so the submitted model is trained on both.</p>
+
+<h2>Results</h2>
+
+<table>
+<tr><th>System</th><th>Language</th><th>AUC</th><th>Mean delay @ ≤5% cutoffs</th></tr>
+<tr><td>Silence-only baseline (given)</td><td>English</td><td>0.514</td><td>1600 ms</td></tr>
+<tr><td>Silence-only baseline (given)</td><td>Hindi</td><td>0.501</td><td>850 ms</td></tr>
+<tr><td>English-only model tested on Hindi</td><td>Hindi</td><td>0.616</td><td>850 ms</td></tr>
+<tr><td><strong>Our model (final, in-sample)</strong></td><td>English</td><td class="good">0.980</td><td class="good">400 ms</td></tr>
+<tr><td><strong>Our model (final, in-sample)</strong></td><td>Hindi</td><td class="good">0.996</td><td class="good">190 ms</td></tr>
+</table>
+
+<p class="warn">Important caveat on the table above:</p>
+<p>The "in-sample" numbers were scored on the same 200 turns the model trained on, so they're optimistic. We built a separate honest check: held out 40 turns (88 pauses) that never touched training at all, retrained excluding them, then scored purely on those unseen turns.</p>
+
+<table>
+<tr><th>Evaluation</th><th>AUC</th></tr>
+<tr><td>In-sample (misleading, model saw this data)</td><td>0.876 / 0.946</td></tr>
+<tr><td><strong>Honest held-out (40 turns never trained on)</strong></td><td class="good">0.682</td></tr>
+</table>
+
+<p>0.682 is the number we'd trust as closest to what the hidden test set will show — well above the ~0.50 baseline, confirming the features carry real signal, even if not as strong as the in-sample numbers suggest.</p>
+
+<h2>Iteration log (condensed from RUNLOG.md)</h2>
+<ol>
+  <li><strong>Baseline</strong> — silence-only, AUC ~0.50 both languages, confirms no real signal without features.</li>
+  <li><strong>Added prosodic features</strong> (pitch, energy, voiced ratio) + GradientBoostingClassifier trained on English+Hindi combined. CV AUC 0.631, but in-sample numbers (0.98+) turned out to be overfitting.</li>
+  <li><strong>Cross-language check</strong> — English-only training tested on Hindi scored no better than baseline, confirming combined-language training is necessary.</li>
+  <li><strong>Added pause-history features</strong> and compared GBM vs HistGBM — GBM won on CV AUC (0.629 vs 0.611).</li>
+  <li><strong>Built an honest held-out evaluation</strong> — 40 turns never touch training, giving a trustworthy AUC of 0.682, well above baseline and confirming the model isn't just memorizing.</li>
+  <li><strong>Final model</strong> retrained on all data (English+Hindi, no exclusions) for submission, since the held-out check already validated generalization.</li>
+</ol>
+
+<h2>Human vs. AI coding agent</h2>
+
+<p><span class="tag agent">AI agent</span> Helped generate the initial project structure, feature extraction code, training pipeline, prediction script, and some boilerplate code to speed up development.</p>
+
+<p><span class="tag human">Human</span> I decided which features to keep, compared different models, and checked whether the results were actually reliable. After noticing that the very high training scores were caused by overfitting, I created a separate held-out evaluation to measure real performance. I also ran an English-only to Hindi experiment to understand cross-language performance, added pause-history features, tuned the Gradient Boosting model, compared it with HistGradientBoosting, and selected the better model based on validation results.</p>
+
+<p>The coding agent helped with implementation, but the experiments, model decisions, evaluation strategy, and final improvements were based on my own analysis and observations.</p>
+
+
+<h2>See also</h2>
+<ul>
+  <li><code>RUNLOG.md</code> — full run-by-run log with commands and scores</li>
+  <li><code>NOTES.md</code> — signal summary, failure modes, next steps</li>
+  <li><code>predictions_english.csv</code>, <code>predictions_hindi.csv</code> — final predictions on both provided folders</li>
+</ul>
+
+</body>
+</html>

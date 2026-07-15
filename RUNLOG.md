@@ -47,3 +47,50 @@ Result: AUC=0.616, delay=850ms @ 5% cutoffs (no better than baseline on Hindi)
 What/why: this confirms training on both languages together matters a lot —
 single-language training doesn't transfer well. Final model (model.pkl) is
 trained on English+Hindi combined, which is what we submit.
+
+## Run 4 — honest held-out evaluation
+
+was worried the run 2 numbers (AUC 0.986/0.993) were basically the model
+memorizing the 200 turns it trained on since delay was suspiciously low.
+wrote a small holdout script that carves out 40 turns (88 pauses) that
+never touch training at all, then checks AUC only on those.
+
+commands:
+python src/eval_holdout.py --data_dirs eot_data/english eot_data/hindi --model model_v2_gbm.pkl
+cp holdout_turns.csv holdout_turns_locked.csv
+python src/train.py --data_dirs eot_data/english eot_data/hindi --out model_final.pkl --model_type gbm --exclude_turns holdout_turns_locked.csv
+python src/eval_holdout.py --data_dirs eot_data/english eot_data/hindi --model model_final.pkl
+
+result: held-out AUC = 0.682 (n=88 pauses, 40 turns never seen in training)
+
+this is the real number to trust, not the in-sample 0.98+ from run 2.
+0.682 is well above the ~0.50 baseline and the 0.616 english-only-to-hindi
+transfer number from run 3, so combined training + current features do
+carry real signal, just not as much as the in-sample numbers suggested.
+
+also compared GradientBoosting vs HistGradientBoosting with the same
+features (CV AUC 0.629 vs 0.611) - GBM won so kept it, just regularized
+harder (max_depth=2, min_samples_leaf=15, subsample=0.8) to reduce the
+overfitting seen in run 2.
+
+## Run 5 — final submission model
+
+retrained on full english+hindi data (no exclusions) since holdout was
+only for honest evaluation, not part of the actual submitted model.
+
+command:
+```
+python src/train.py --data_dirs eot_data/english eot_data/hindi --out model.pkl --model_type gbm
+python predict.py --data_dir eot_data/english --model model.pkl --out predictions_english.csv
+python predict.py --data_dir eot_data/hindi --model model.pkl --out predictions_hindi.csv
+python starter/score.py --data_dir eot_data/english --pred predictions_english.csv
+python starter/score.py --data_dir eot_data/hindi --pred predictions_hindi.csv
+```
+
+results: 
+English AUC=0.980, delay=400ms @ 3% cutoffs
+Hindi AUC=0.996, delay=190ms @ 2% cutoffs  
+
+note: these scores are in-sample (model trained on this exact data) so
+expect them to look better than reality. true expected performance on
+unseen data is closer to the 0.682 held-out AUC from run 4.
