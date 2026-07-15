@@ -5,3 +5,6 @@ __pycache__/
 .ipynb_checkpoints/
 eot_data/
 EOF
+# Temporary / experiment outputs
+eot_handout/preds_baseline_en.csv
+eot_handout/preds_baseline_hi.csv
