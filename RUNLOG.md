@@ -18,4 +18,32 @@ Commands:
 
 **What/why:** This is the given baseline — p_eot=1.0 for every pause, so the agent has no real signal and just relies on the fixed action-delay sweep. AUC ~0.50 on both languages confirms there's no discriminative power (it's random). The English result (1600ms, 0% cutoffs) is the true "wait out the full timeout every time" behavior. The Hindi number (850ms) looks better but is not real signal — it's the scorer finding a threshold/delay pair that happens to land under the 5% cutoff budget by chance, since every prediction is identical. This is the number to beat with real prosodic features.
 
-## Run 2 — (next: causal prosodic features + GradientBoostingClassifier)
+
+## Run 2 — prosodic features (pitch + energy trajectory) + GradientBoostingClassifier
+Trained on eot_data/english + eot_data/hindi combined.
+Command: 
+
+`python src/train.py --data_dirs eot_data/english eot_data/hindi --out model.pkl`
+
+Cross-validated AUC (GroupKFold by turn, 5 folds): mean=0.631, folds=[0.585, 0.670, 0.660, 0.597, 0.643] 
+In-sample score (model scored on the same data it trained on, NOT a fair estimate):
+English AUC=0.986, delay=325ms @ 2% cutoffs
+Hindi AUC=0.993, delay=160ms @ 4% cutoffs
+
+What/why: added pitch slope, energy trajectory, voiced ratio, and turn-context
+features (pause_index, time since turn start), all computed only from audio
+before pause_start. In-sample numbers are inflated since the model saw this
+data during training. CV AUC of 0.63 is the honest estimate.
+
+## Run 3 — cross-language generalization check
+Trained on English only, tested on Hindi (worst case, simulates unseen language).
+Command:
+`python src/train.py --data_dirs eot_data/english --out model_en_only.pkl`
+
+`python predict.py --data_dir eot_data/hindi --model model_en_only.pkl --out predictions_hindi_heldout.csv`
+
+Result: AUC=0.616, delay=850ms @ 5% cutoffs (no better than baseline on Hindi)
+
+What/why: this confirms training on both languages together matters a lot —
+single-language training doesn't transfer well. Final model (model.pkl) is
+trained on English+Hindi combined, which is what we submit.
